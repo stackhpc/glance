@@ -206,6 +206,8 @@
       The regular tempest-integrated-storage job but with glance metadata injection
     post-run: playbooks/post-check-metadata-injection.yaml
     vars:
+      configure_swap_size: 8192
+      tempest_concurrency: 3
       zuul_copy_output:
         /etc/glance-remote: logs
       devstack_localrc:
@@ -314,7 +316,6 @@
       - release-notes-jobs-python3
     check:
       jobs:
-        - openstack-tox-functional-py38-fips
         - openstack-tox-functional-py39
         - glance-tox-functional-py39-rbac-defaults
         - glance-ceph-thin-provisioning:
