@@ -217,6 +217,12 @@ class TestFormatInspectors(test_utils.BaseTestCase):
                             'Format used more than 1.5MiB of memory: %s' % (
                                 fmt.context_info))
 
+    def test_qed_always_unsafe(self):
+        img = self._create_img('qed', 10 * units.Mi)
+        fmt = format_inspector.get_inspector('qed').from_file(img)
+        self.assertTrue(fmt.format_match)
+        self.assertFalse(fmt.safety_check())
+
     def test_from_file_reads_minimum(self):
         img = self._create_img('qcow2', 10 * units.Mi)
         file_size = os.stat(img).st_size
