@@ -77,7 +77,7 @@ class TestFormatInspectors(test_utils.BaseTestCase):
                              suffix='.%s' % fmt)
         self._created_files.append(fn)
         subprocess.check_output(
-            'qemu-img create -f %s %s %i' % (fmt, fn, size),
+            'qemu-img create -f %s %s %s %i' % (fmt, opt, fn, size),
             shell=True)
         return fn
 
