@@ -81,25 +81,31 @@ class TestFormatInspectors(test_utils.BaseTestCase):
             shell=True)
         return fn
 
-    def _create_allocated_vmdk(self, size_mb):
+    def _create_allocated_vmdk(self, size_mb, subformat=None):
         # We need a "big" VMDK file to exercise some parts of the code of the
         # format_inspector. A way to create one is to first create an empty
         # file, and then to convert it with the -S 0 option.
-        fn = tempfile.mktemp(prefix='glance-unittest-formatinspector-',
-                             suffix='.vmdk')
-        self._created_files.append(fn)
-        zeroes = tempfile.mktemp(prefix='glance-unittest-formatinspector-',
-                                 suffix='.zero')
-        self._created_files.append(zeroes)
 
-        # Create an empty file
+        if subformat is None:
+            # Matches qemu-img default, see `qemu-img convert -O vmdk -o help`
+            subformat = 'monolithicSparse'
+
+        prefix = 'glance-unittest-formatinspector-%s-' % subformat
+        fn = tempfile.mktemp(prefix=prefix, suffix='.vmdk')
+        self._created_files.append(fn)
+        raw = tempfile.mktemp(prefix=prefix, suffix='.raw')
+        self._created_files.append(raw)
+
+        # Create a file with pseudo-random data, otherwise it will get
+        # compressed in the streamOptimized format
         subprocess.check_output(
-            'dd if=/dev/zero of=%s bs=1M count=%i' % (zeroes, size_mb),
+            'dd if=/dev/urandom of=%s bs=1M count=%i' % (raw, size_mb),
             shell=True)
 
         # Convert it to VMDK
         subprocess.check_output(
-            'qemu-img convert -f raw -O vmdk -S 0 %s %s' % (zeroes, fn),
+            'qemu-img convert -f raw -O vmdk -o subformat=%s -S 0 %s %s' % (
+                subformat, raw, fn),
             shell=True)
         return fn
 
@@ -118,8 +124,9 @@ class TestFormatInspectors(test_utils.BaseTestCase):
         wrapper.close()
         return fmt
 
-    def _test_format_at_image_size(self, format_name, image_size):
-        img = self._create_img(format_name, image_size)
+    def _test_format_at_image_size(self, format_name, image_size,
+                                   subformat=None):
+        img = self._create_img(format_name, image_size, subformat=subformat)
 
         # Some formats have internal alignment restrictions making this not
         # always exactly like image_size, so get the real value for comparison
@@ -141,11 +148,12 @@ class TestFormatInspectors(test_utils.BaseTestCase):
                             'Format used more than 512KiB of memory: %s' % (
                                 fmt.context_info))
 
-    def _test_format(self, format_name):
+    def _test_format(self, format_name, subformat=None):
         # Try a few different image sizes, including some odd and very small
         # sizes
         for image_size in (512, 513, 2057, 7):
-            self._test_format_at_image_size(format_name, image_size * units.Mi)
+            self._test_format_at_image_size(format_name, image_size * units.Mi,
+                                            subformat=subformat)
 
     def test_qcow2(self):
         self._test_format('qcow2')
@@ -159,12 +167,30 @@ class TestFormatInspectors(test_utils.BaseTestCase):
     def test_vmdk(self):
         self._test_format('vmdk')
 
-    def test_vmdk_bad_descriptor_offset(self):
+    def test_vmdk_stream_optimized(self):
+        self._test_format('vmdk', 'streamOptimized')
+
+    def test_from_file_reads_minimum(self):
+        img = self._create_img('qcow2', 10 * units.Mi)
+        file_size = os.stat(img).st_size
+        fmt = format_inspector.QcowInspector.from_file(img)
+        # We know everything we need from the first 512 bytes of a QCOW image,
+        # so make sure that we did not read the whole thing when we inspect
+        # a local file.
+        self.assertLess(fmt.actual_size, file_size)
+
+    def test_qed_always_unsafe(self):
+        img = self._create_img('qed', 10 * units.Mi)
+        fmt = format_inspector.get_inspector('qed').from_file(img)
+        self.assertTrue(fmt.format_match)
+        self.assertFalse(fmt.safety_check())
+
+    def _test_vmdk_bad_descriptor_offset(self, subformat=None):
         format_name = 'vmdk'
         image_size = 10 * units.Mi
         descriptorOffsetAddr = 0x1c
         BAD_ADDRESS = 0x400
-        img = self._create_img(format_name, image_size)
+        img = self._create_img(format_name, image_size, subformat=subformat)
 
         # Corrupt the header
         fd = open(img, 'r+b')
@@ -184,7 +210,13 @@ class TestFormatInspectors(test_utils.BaseTestCase):
                               'size %i block %i') % (format_name, image_size,
                                                      block_size))
 
-    def test_vmdk_bad_descriptor_mem_limit(self):
+    def test_vmdk_bad_descriptor_offset(self):
+        self._test_vmdk_bad_descriptor_offset()
+
+    def test_vmdk_bad_descriptor_offset_stream_optimized(self):
+        self._test_vmdk_bad_descriptor_offset(subformat='streamOptimized')
+
+    def _test_vmdk_bad_descriptor_mem_limit(self, subformat=None):
         format_name = 'vmdk'
         image_size = 5 * units.Mi
         virtual_size = 5 * units.Mi
@@ -193,7 +225,8 @@ class TestFormatInspectors(test_utils.BaseTestCase):
         twoMBInSectors = (2 << 20) // 512
         # We need a big VMDK because otherwise we will not have enough data to
         # fill-up the CaptureRegion.
-        img = self._create_allocated_vmdk(image_size // units.Mi)
+        img = self._create_allocated_vmdk(image_size // units.Mi,
+                                          subformat=subformat)
 
         # Corrupt the end of descriptor address so it "ends" at 2MB
         fd = open(img, 'r+b')
@@ -217,20 +250,11 @@ class TestFormatInspectors(test_utils.BaseTestCase):
                             'Format used more than 1.5MiB of memory: %s' % (
                                 fmt.context_info))
 
-    def test_qed_always_unsafe(self):
-        img = self._create_img('qed', 10 * units.Mi)
-        fmt = format_inspector.get_inspector('qed').from_file(img)
-        self.assertTrue(fmt.format_match)
-        self.assertFalse(fmt.safety_check())
+    def test_vmdk_bad_descriptor_mem_limit(self):
+        self._test_vmdk_bad_descriptor_mem_limit()
 
-    def test_from_file_reads_minimum(self):
-        img = self._create_img('qcow2', 10 * units.Mi)
-        file_size = os.stat(img).st_size
-        fmt = format_inspector.QcowInspector.from_file(img)
-        # We know everything we need from the first 512 bytes of a QCOW image,
-        # so make sure that we did not read the whole thing when we inspect
-        # a local file.
-        self.assertLess(fmt.actual_size, file_size)
+    def test_vmdk_bad_descriptor_mem_limit_stream_optimized(self):
+        self._test_vmdk_bad_descriptor_mem_limit(subformat='streamOptimized')
 
     def test_qcow2_safety_checks(self):
         # Create backing and data-file names (and initialize the backing file)
