@@ -415,8 +415,8 @@ class TestTasksController(test_utils.BaseTestCase):
                        "non-local source of image data.")
             else:
                 supported = ['http', ]
-                msg = ("The given URI is not valid. Please specify a "
-                       "valid URI from the following list of supported URI "
+                msg = ("The given uri is not valid. Please specify a "
+                       "valid uri from the following list of supported uri "
                        "%(supported)s") % {'supported': supported}
             self.assertEqual(msg, final_task.message)
 
