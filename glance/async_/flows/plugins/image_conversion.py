@@ -89,10 +89,7 @@ class _ConvertImage(task.Task):
                                              'target': target_format}
         self.dest_path = dest_path
 
-        # Backport fixup due to lack of
-        # Ic51c5fd87caf04d38aeaf758ad2d0e2f28098e4d in Yoga:
-        #source_format = action.image_disk_format
-        source_format = action._image.disk_format
+        source_format = action.image_disk_format
         inspector_cls = format_inspector.get_inspector(source_format)
         if not inspector_cls:
             # We cannot convert from disk_format types that qemu-img doesn't

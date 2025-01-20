@@ -488,6 +488,7 @@ class VHDXInspector(FileInspector):
     """
     METAREGION = '8B7CA206-4790-4B9A-B8FE-575F050F886E'
     VIRTUAL_DISK_SIZE = '2FA54224-CD1B-4876-B211-5DBED83BF4B8'
+    VHDX_METADATA_TABLE_MAX_SIZE = 32 * 2048  # From qemu
 
     def __init__(self, *a, **k):
         super(VHDXInspector, self).__init__(*a, **k)
@@ -602,6 +603,8 @@ class VHDXInspector(FileInspector):
                 item_offset, item_length, _reserved = struct.unpack(
                     '<III',
                     meta_buffer[entry_offset + 16:entry_offset + 28])
+                item_length = min(item_length,
+                                  self.VHDX_METADATA_TABLE_MAX_SIZE)
                 self.region('metadata').length = len(meta_buffer)
                 self._log.debug('Found entry at offset %x', item_offset)
                 # Metadata item offset is from the beginning of the metadata
@@ -652,7 +655,7 @@ class VHDXInspector(FileInspector):
 #
 # https://www.vmware.com/app/vmdk/?src=vmdk
 class VMDKInspector(FileInspector):
-    """vmware VMDK format (monolithicSparse variant only)
+    """vmware VMDK format (monolithicSparse and streamOptimized variants only)
 
     This needs to store the 512 byte header and the descriptor region
     which should be just after that. The descriptor region is some
@@ -683,7 +686,6 @@ class VMDKInspector(FileInspector):
 
         if sig != b'KDMV':
             raise ImageFormatError('Signature KDMV not found: %r' % sig)
-            return
 
         if ver not in (1, 2, 3):
             raise ImageFormatError('Unsupported format version %i' % ver)
@@ -693,9 +695,18 @@ class VMDKInspector(FileInspector):
             # header, which we cannot support since we stream.
             raise ImageFormatError('Unsupported VMDK footer')
 
+        # Since we parse both desc_sec and desc_num (the location of the
+        # VMDK's descriptor, expressed in 512 bytes sectors) we enforce a
+        # check on the bounds to create a reasonable CaptureRegion. This
+        # is similar to how it's done in qemu.
+        desc_offset = desc_sec * 512
+        desc_size = min(desc_num * 512, self.DESC_MAX_SIZE)
+        if desc_offset != self.DESC_OFFSET:
+            raise ImageFormatError("Wrong descriptor location")
+
         if not self.has_region('descriptor'):
             self.new_region('descriptor', CaptureRegion(
-                desc_sec * 512, desc_num * 512))
+                desc_offset, desc_size))
 
     @property
     def format_match(self):
@@ -721,7 +732,7 @@ class VMDKInspector(FileInspector):
             vmdktype = descriptor[type_idx:type_end]
         else:
             vmdktype = b'formatnotfound'
-        if vmdktype != b'monolithicSparse':
+        if vmdktype not in (b'monolithicSparse', b'streamOptimized'):
             LOG.warning('Unsupported VMDK format %s', vmdktype)
             return 0
 
