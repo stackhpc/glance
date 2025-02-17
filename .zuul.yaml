@@ -209,6 +209,7 @@
 - job:
     name: tempest-integrated-storage-import
     parent: tempest-integrated-storage
+    timeout: 10800
     description: |
       The regular tempest-integrated-storage job but with glance metadata injection
     post-run: playbooks/post-check-metadata-injection.yaml
@@ -241,8 +242,9 @@
         test-config:
           "$TEMPEST_CONFIG":
             image:
-              image_caching_enabled: True
+              build_timeout: 600
               disk_formats: qcow2,ari,aki,vhd,vmdk,raw,ami,vdi,iso,vhdx
+              image_caching_enabled: True
 
 - job:
     name: glance-multistore-cinder-import
