@@ -24,7 +24,7 @@ postgresql-server [platform:rpm]
 postgresql-server-devel [platform:suse]  # Provides pg_config
 libpython3-dev [platform:dpkg]
 python3-devel [platform:rpm]
-qemu [platform:dpkg devstack build-image-dib test]
+qemu [platform:dpkg devstack build-image-dib test !platform:ubuntu-noble]
 qemu-utils [platform:dpkg devstack build-image-dib test]
 qemu-img [platform:redhat test]
 qemu-tools [platform:suse test]  # Provides qemu-img
